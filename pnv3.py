@@ -51,7 +51,9 @@ class Missile:
 
         self.nmd = np.zeros(N+1) # normal body drag
 
-        self.surfang = np.zeros(N+1) # control surface angle
+        self.surfpos = np.zeros(N+1) # control surface position
+
+        self.surfvel = np.zeros(N+1) # control surface angular velocity
 
         self.axc = np.zeros(N+1) # control surface axial drag
 
@@ -64,6 +66,10 @@ class Missile:
         self.ydm = np.zeros(N+1) # yaw damping moment
 
         self.csm = np.zeros(N+1) # control surface moment
+
+        self.crm = np.zeros(N+1) # control surface restoring moment
+
+        self.cdm = np.zeros(N+1) # control surface damping moment
 
     def update(self, n, surf_input):
         # COMMON PROPERTIES
@@ -97,30 +103,41 @@ class Missile:
         self.rsm[n] = self.nmd[n] * MISSILE_CP_DIST
 
         # CONTROL SURFACE DRAG
-        # control surface angle
-        self.surfang[n] = surf_input
+        # control surface torque
+        
 
         # axial control surface drag
-        self.ksa = 0.05 * np.cos(self.aoa[n] + self.surfang[n])
+        self.ksa = 0.05 * np.cos(self.aoa[n] + self.surfpos[n])
         self.axc[n] = self.rho[n] * (MISSILE_CT_SA) * (self.spd[n]**2) * self.ksa
 
         # normal control surface drag
-        self.ksn = 1.5 * np.sin(self.aoa[n] + self.surfang[n])
+        self.ksn = 1.5 * np.sin(self.aoa[n] + self.surfpos[n])
         self.nmc[n] = self.rho[n] * (MISSILE_CT_SA) * (self.spd[n]**2) * self.ksn
 
-        # control surface moment
+        # control surface moment on missile
         self.csm[n] = -self.nmc[n] * MISSILE_CS_DIST
 
+        # control surface restoring moment
+        self.crm[n] = self.nmc[n] * 0.05
+
+        # control surface damping
+        self.km = 500
+        self.cdm[n] = self.rho[n] * ((2 * MISSILE_RADIUS)**4) * self.surfvel[n] * self.spd[n] * self.km
+
         # control surface force summation
-        self.rcfs[n] = np.array([-self.axc[n], self.nmc[n], self.csm[n]])
+        self.rcfs[n] = np.array([-self.axc[n], self.nmc[n], self.crm[n]])
+
+        self.surfvel[n] += (self.rcfs[n, 2] * CONST_DT) / MISSILE_MASS
+        self.surfpos[n] += self.surfvel[n] * CONST_DT
 
         # rotation matrix for vector rotation
-        c = np.cos(self.surfang[n])
-        s = np.sin(self.surfang[n])
+        c = np.cos(self.surfpos[n])
+        s = np.sin(self.surfpos[n])
         r = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
         # absolute control surface force
         self.acfs[n] = np.dot(r, self.rcfs[n])
+
 
         # yaw damping
         self.km = 500
@@ -130,7 +147,7 @@ class Missile:
         self.thr[n] = MISSILE_MASS * 40 
 
         # force summation
-        self.fsum[n] = np.array([(-self.axd[n] + self.thr[n]), (self.nmd[n]), (-self.rsm[n] - self.ydm[n])]) + self.acfs[n]
+        self.fsum[n] = np.array([(-self.axd[n] + self.thr[n] + self.acfs[n, 0]), (self.nmd[n] + self.acfs[n, 1]), (-self.rsm[n] - self.ydm[n] + self.csm[n])])
 
         # rotation matrix for vector rotation
         c = np.cos(self.pos[n, 2])
