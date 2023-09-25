@@ -103,8 +103,17 @@ class Missile:
         self.rsm[n] = self.nmd[n] * MISSILE_CP_DIST
 
         # CONTROL SURFACE DRAG
-        # control surface torque
+        if(self.surfpos[n] > np.pi/4):
+            self.surfpos[n] = np.pi/4
+
+        elif(self.surfpos[n] < -np.pi/4):
+            self.surfpos[n]= -np.pi/4
         
+        else:
+            self.surfpos[n]
+
+        # control surface torque
+        self.crm[n] = surf_input * MISSILE_MASS
 
         # axial control surface drag
         self.ksa = 0.05 * np.cos(self.aoa[n] + self.surfpos[n])
@@ -118,10 +127,10 @@ class Missile:
         self.csm[n] = -self.nmc[n] * MISSILE_CS_DIST
 
         # control surface restoring moment
-        self.crm[n] = self.nmc[n] * 0.05
+        self.crm[n] += self.nmc[n] * 0.05
 
         # control surface damping
-        self.km = 500
+        self.km = 100
         self.cdm[n] = self.rho[n] * ((2 * MISSILE_RADIUS)**4) * self.surfvel[n] * self.spd[n] * self.km
 
         # control surface force summation
@@ -137,7 +146,6 @@ class Missile:
 
         # absolute control surface force
         self.acfs[n] = np.dot(r, self.rcfs[n])
-
 
         # yaw damping
         self.km = 500
@@ -162,42 +170,45 @@ class Missile:
         self.pos[n+1] = self.pos[n] + self.vel[n] * CONST_DT
 
     def purepursuit(self, n, target):
-        self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) - self.pos[n, 2]
-        output = (self.los[n] * -400)/(self.spd[n-1]**2)
-
-        return max(-np.pi/4, min(output, np.pi/4))
+        self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) - np.arctan2(self.vel[n, 1], self.vel[n, 0])
+        dp = (target.pos[n] - self.pos[n])[:-1]
+        output = self.los[n] * -9
+        print(la.norm(dp))
+        return output
 
     def pronav(self, n, target):
         # line of sight from missile to target
         # self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) - self.pos[n, 2]
 
         # line of sight from missile velocity vector to target
-        self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) - np.arctan2(self.vel[n, 1], self.vel[n, 0])
-        
+        # self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) - np.arctan2(self.vel[n, 1], self.vel[n, 0])
+
+        # line of sight from absolute coordinate plane to target
+        self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0])
+
+        dlos = (self.los[n] - self.los[n-1]) / CONST_DT
+
         # calculation of closing velocity
         dp = (target.pos[n] - self.pos[n])[:-1]
         dv = (target.vel[n] - self.vel[n])[:-1] 
         self.clv[n] = -(np.dot(dv, dp)/la.norm(dp))
 
-        dlos = (self.los[n] - self.los[n-1]) / CONST_DT
-
-        desired_acceleration = 4 * ((self.los[n] - self.los[n-1]) / CONST_DT) * self.clv[n]
+        desired_acceleration = 3 * (dlos / CONST_DT) * self.clv[n]
         current_acceleration = self.fsum[n-1, 1] / MISSILE_MASS
 
         # reverse mathematics to find the control surface angle that will produce the desired acceleration
 
         # normal drag
-        desired_aoa = np.arcsin(max(-1, min((desired_acceleration * MISSILE_MASS) / (self.rho[n-1] * ((2 * MISSILE_RADIUS)**2) * (self.spd[n-1]**2) * 1.4), 1))) 
+        # desired_aoa = np.arcsin(max(-1, min((desired_acceleration * MISSILE_MASS) / (self.rho[n-1] * ((2 * MISSILE_RADIUS)**2) * (self.spd[n-1]**2) * 1.4), 1))) 
 
-        pid = PID(-0.5, 0, 100, setpoint=desired_aoa)
-        output = pid(self.aoa[n])
-        print(desired_aoa) 
+        # pid = PID(0.25, 0, 10, setpoint=0)
+        output = -0.5 * desired_acceleration
 
         # print((self.los[n] - self.los[n-1]) / CONST_DT)
         # print(self.clv[n])
-        # print("desired = " + str(desired_acceleration) + " current = " + str(current_acceleration) + " output = " + str(output))
+        print("desired = " + str(desired_acceleration) + " current = " + str(current_acceleration) + " output = " + str(self.clv[n]))
 
-        return max(-np.pi/4, min(output, np.pi/4))
+        return output
 
 class Aircraft:
     def __init__(self, ipos:list, ivel:list):
@@ -211,8 +222,8 @@ class Aircraft:
 XLIM = 42000
 YLIM = 25000
 
-missile = Missile([-3000, 0, np.pi/4], [10, 10, 0])
-target = Aircraft([0, 17000, 0], [100, 0, 0])
+missile = Missile([-3000, 0, np.pi/2], [0, 10, 0])
+target = Aircraft([0, 17000, 0], [340, 0, 0])
 
 # plot
 fig, axs = plt.subplots(4)
@@ -226,8 +237,8 @@ aoatrack = axs[1].plot(0, 0, label="Angle of attack")[0]
 
 def update(frame):
     # missile update function
-    missile.update(frame, missile.pronav(frame, target))
-    # missile.update(frame, missile.purepursuit(frame, target))
+    # missile.update(frame, 0)
+    missile.update(frame, missile.purepursuit(frame, target))
     target.update(frame)
     # missile.pronav(frame, target)
 
@@ -245,7 +256,7 @@ def update(frame):
     
     # missile angle of attack plot
     aoatrack.set_xdata([x for x, y, z in missile.pos[:frame]])
-    aoatrack.set_ydata([x for x in missile.aoa[:frame]])
+    aoatrack.set_ydata([x for x in missile.surfpos[:frame]])
 
     # missile normal drag plot
     nmdtrack.set_xdata([x for x, y, z in missile.pos[:frame]])
