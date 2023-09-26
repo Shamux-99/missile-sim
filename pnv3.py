@@ -70,6 +70,9 @@ class Missile:
     def update(self, n, surf_input):
         # COMMON PROPERTIES
 
+        # time elapsed (seconds)
+        time = n * 0.05
+
         # angle of attack
         self.aoa[n] = self.pos[n, 2] - np.arctan2(self.vel[n, 1], self.vel[n, 0])
 
@@ -88,11 +91,11 @@ class Missile:
         # AERODYNAMIC FORCES
         # MISSILE BODY DRAG
         # axial drag
-        self.kda = 0.5 * np.cos(self.aoa[n])
+        self.kda = 0.2 * np.cos(self.aoa[n])
         self.axd[n] = self.rho[n] * ((2 * MISSILE_RADIUS)**2) * (self.spd[n]**2) * self.kda
 
         # normal drag
-        self.kn = 1.4 * np.sin(self.aoa[n])
+        self.kn = 0.8 * np.sin(self.aoa[n])
         self.nmd[n] = self.rho[n] * ((2 * MISSILE_RADIUS)**2) * (self.spd[n]**2) * self.kn
 
         # restoring moment
@@ -181,7 +184,8 @@ class Missile:
         self.ydm[n] = self.rho[n] * ((2 * MISSILE_RADIUS)**4) * self.vel[n, 2] * self.spd[n] * self.km
 
         # missile thrust
-        self.thr[n] = MISSILE_MASS * 40 
+        if time < 12:
+            self.thr[n] = MISSILE_MASS * 80 
 
         # force summation
 
@@ -212,7 +216,7 @@ class Missile:
 
     def pronav(self, n, target):
         # line of sight from missile to target
-        # self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) - self.pos[n, 2]
+        # self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) # - self.pos[n, 2]
 
         # line of sight from missile velocity vector to target
         # self.los[n] = np.arctan2(target.pos[n, 1] - self.pos[n, 1], target.pos[n, 0] - self.pos[n, 0]) - np.arctan2(self.vel[n, 1], self.vel[n, 0])
@@ -235,12 +239,12 @@ class Missile:
         # normal drag
         # desired_aoa = np.arcsin(max(-1, min((desired_acceleration * MISSILE_MASS) / (self.rho[n-1] * ((2 * MISSILE_RADIUS)**2) * (self.spd[n-1]**2) * 1.4), 1))) 
 
-        pid = PID(0.3, 0.01, 1000, setpoint=0)
-        output = pid(desired_acceleration)
+        pid = PID(-500000000, 0, 100, setpoint=desired_acceleration)
+        output = pid(current_acceleration)
 
         # print((self.los[n] - self.los[n-1]) / CONST_DT)
         # print(self.clv[n])
-        print("desired = " + str(desired_acceleration) + " current = " + str(current_acceleration) + " output = " + str(output))
+        print("desired = " + str(desired_acceleration) + " current = " + str(current_acceleration) + " output = " + str(dlos))
 
         return output
 
@@ -257,16 +261,17 @@ XLIM = 42000
 YLIM = 25000
 
 missile = Missile([-3000, 0, np.pi/2], [0, 10, 0])
-target = Aircraft([0, 17000, 0], [300, 0, 0])
+target = Aircraft([-XLIM, 5000, 0], [400, 0, 0])
+# target = Missile([22000, 10000, np.pi/2 + np.pi/4], [-400, 50, 0])
 
 # plot
-fig, axs = plt.subplots(4)
+fig, axs = plt.subplots(1)
 
-mtrack = axs[0].plot(0, 0, label="Missile")[0]
-ttrack = axs[0].plot(0, 0, label="Target")[0]
-nmdtrack = axs[3].plot(0, 0, label="Normal drag force")[0]
-spdtrack = axs[2].plot(0, 0, label="Missile speed")[0]
-aoatrack = axs[1].plot(0, 0, label="Angle of attack")[0]
+mtrack = axs.plot(0, 0, label="Missile")[0]
+ttrack = axs.plot(0, 0, label="Target")[0]
+# nmdtrack = axs[3].plot(0, 0, label="Normal drag force")[0]
+# spdtrack = axs[2].plot(0, 0, label="Missile speed")[0]
+# aoatrack = axs[1].plot(0, 0, label="Angle of attack")[0]
 
 
 def update(frame):
@@ -286,24 +291,24 @@ def update(frame):
     ttrack.set_ydata([y for x, y, z in target.pos[:frame]])
 
     # missile speed plot
-    spdtrack.set_xdata([x for x, y, z in missile.pos[:frame]])
-    spdtrack.set_ydata([x for x in missile.spd[:frame]])
+    # spdtrack.set_xdata([x for x, y, z in missile.pos[:frame]])
+    # spdtrack.set_ydata([x for x in missile.spd[:frame]])
     
     # missile angle of attack plot
-    aoatrack.set_xdata([x for x, y, z in missile.pos[:frame]])
-    aoatrack.set_ydata([x for x in missile.surfpos[:frame]])
+    # aoatrack.set_xdata([x for x, y, z in missile.pos[:frame]])
+    # aoatrack.set_ydata([x for x in missile.surfpos[:frame]])
 
     # missile normal drag plot
-    nmdtrack.set_xdata([x for x, y, z in missile.pos[:frame]])
-    nmdtrack.set_ydata([y / MISSILE_MASS for x, y, z in missile.fsum[:frame]])
+    # nmdtrack.set_xdata([x for x, y, z in missile.pos[:frame]])
+    # nmdtrack.set_ydata([y / MISSILE_MASS for x, y, z in missile.fsum[:frame]])
 
     return(mtrack, ttrack)
 
-axs[0].set(xlim=(-XLIM, XLIM), ylim=(0, YLIM), xlabel = "Position (m)", ylabel = "Altitude (m)")
-axs[3].set(xlim=(-XLIM, XLIM), ylim=(-50, 50), xlabel = "Position (m)", ylabel = "Drag forces n to missile (N)")
-axs[2].set(xlim=(-XLIM, XLIM), ylim=(0, 1000), xlabel = "Position (m)", ylabel = "Speed (m/s)")
-axs[1].set(xlim=(-XLIM, XLIM), ylim=(-np.pi, np.pi), xlabel = "Position (m)", ylabel = "Angle of attack (rad)")
-axs[1].legend()
+axs.set(xlim=(-XLIM, XLIM), ylim=(0, YLIM), xlabel = "Position (m)", ylabel = "Altitude (m)")
+# axs[3].set(xlim=(-XLIM, XLIM), ylim=(-50, 50), xlabel = "Position (m)", ylabel = "Drag forces n to missile (N)")
+# axs[2].set(xlim=(-XLIM, XLIM), ylim=(0, 1000), xlabel = "Position (m)", ylabel = "Speed (m/s)")
+# axs[1].set(xlim=(-XLIM, XLIM), ylim=(-np.pi, np.pi), xlabel = "Position (m)", ylabel = "Angle of attack (rad)")
+# axs[1].legend()
 
 
 
