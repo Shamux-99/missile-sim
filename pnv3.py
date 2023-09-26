@@ -6,7 +6,7 @@ import numpy.linalg as la
 from simple_pid import PID
 
 # calculation constants
-CONST_SIMTIME = 60 #s
+CONST_SIMTIME = 80 #s
 CONST_DT = 0.2 #s
 N = int(CONST_SIMTIME / CONST_DT) # number of frames
 
@@ -19,10 +19,6 @@ MISSILE_RADIUS = 0.2 #m
 MISSILE_CP_DIST = 0.2 #m 
 MISSILE_CT_SA = 0.0175 #m^2
 MISSILE_CS_DIST = 2.5 #m
-
-# air density calculation as a function of altitude
-def air_density(altitude):
-    return 1.225 * (1 - (0.00002255691 * altitude))**4.2561
 
 class Missile:
     def __init__(self, ipos:list, ivel:list):
@@ -102,6 +98,7 @@ class Missile:
         # restoring moment
         self.rsm[n] = self.nmd[n] * MISSILE_CP_DIST
 
+        # CURRENT CODE ==========================================================================================
         # CONTROL SURFACE DRAG
         if(self.surfpos[n] > np.pi/4):
             self.surfpos[n] = np.pi/4
@@ -112,7 +109,7 @@ class Missile:
         else:
             self.surfpos[n]
 
-        # control surface torque
+        # control surface torque 
         self.crm[n] = surf_input * MISSILE_MASS
 
         # axial control surface drag
@@ -136,8 +133,8 @@ class Missile:
         # control surface force summation
         self.rcfs[n] = np.array([-self.axc[n], self.nmc[n], self.crm[n]])
 
-        self.surfvel[n] += (self.rcfs[n, 2] * CONST_DT) / MISSILE_MASS
-        self.surfpos[n] += self.surfvel[n] * CONST_DT
+        self.surfvel[n+1] += (self.rcfs[n, 2] * CONST_DT) / MISSILE_MASS
+        self.surfpos[n+1] += self.surfvel[n] * CONST_DT
 
         # rotation matrix for vector rotation
         c = np.cos(self.surfpos[n])
@@ -147,6 +144,38 @@ class Missile:
         # absolute control surface force
         self.acfs[n] = np.dot(r, self.rcfs[n])
 
+        # END CURRENT CODE ======================================================================================
+
+        # # BEGIN OLD CODE ========================================================================================
+
+        # # CONTROL SURFACE DRAG
+        # # control surface angle
+        # self.surfang[n] = surf_input
+
+        # # axial control surface drag
+        # self.ksa = 0.05 * np.cos(self.aoa[n] + self.surfang[n])
+        # self.axc[n] = self.rho[n] * (MISSILE_CT_SA) * (self.spd[n]**2) * self.ksa
+
+        # # normal control surface drag
+        # self.ksn = 1.5 * np.sin(self.aoa[n] + self.surfang[n])
+        # self.nmc[n] = self.rho[n] * (MISSILE_CT_SA) * (self.spd[n]**2) * self.ksn
+
+        # # control surface moment
+        # self.csm[n] = -self.nmc[n] * MISSILE_CS_DIST
+
+        # # control surface force summation
+        # self.rcfs[n] = np.array([-self.axc[n], self.nmc[n], self.csm[n]])
+
+        # # rotation matrix for vector rotation
+        # c = np.cos(self.surfang[n])
+        # s = np.sin(self.surfang[n])
+        # r = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+        # # absolute control surface force
+        # self.acfs[n] = np.dot(r, self.rcfs[n])
+
+        # # END OLD CODE ==========================================================================================
+
         # yaw damping
         self.km = 500
         self.ydm[n] = self.rho[n] * ((2 * MISSILE_RADIUS)**4) * self.vel[n, 2] * self.spd[n] * self.km
@@ -155,6 +184,11 @@ class Missile:
         self.thr[n] = MISSILE_MASS * 40 
 
         # force summation
+
+        # OLD FORCE SUMMATION
+        # self.fsum[n] = np.array([(-self.axd[n] + self.thr[n] + self.acfs[n, 0]), (self.nmd[n] + self.acfs[n, 1]), (-self.rsm[n] - self.ydm[n] + self.csm[n])])
+
+        # NEW FORCE SUMMATION
         self.fsum[n] = np.array([(-self.axd[n] + self.thr[n] + self.acfs[n, 0]), (self.nmd[n] + self.acfs[n, 1]), (-self.rsm[n] - self.ydm[n] + self.csm[n])])
 
         # rotation matrix for vector rotation
@@ -201,12 +235,12 @@ class Missile:
         # normal drag
         # desired_aoa = np.arcsin(max(-1, min((desired_acceleration * MISSILE_MASS) / (self.rho[n-1] * ((2 * MISSILE_RADIUS)**2) * (self.spd[n-1]**2) * 1.4), 1))) 
 
-        # pid = PID(0.25, 0, 10, setpoint=0)
-        output = -0.5 * desired_acceleration
+        pid = PID(0.3, 0.01, 1000, setpoint=0)
+        output = pid(desired_acceleration)
 
         # print((self.los[n] - self.los[n-1]) / CONST_DT)
         # print(self.clv[n])
-        print("desired = " + str(desired_acceleration) + " current = " + str(current_acceleration) + " output = " + str(self.clv[n]))
+        print("desired = " + str(desired_acceleration) + " current = " + str(current_acceleration) + " output = " + str(output))
 
         return output
 
@@ -223,7 +257,7 @@ XLIM = 42000
 YLIM = 25000
 
 missile = Missile([-3000, 0, np.pi/2], [0, 10, 0])
-target = Aircraft([0, 17000, 0], [340, 0, 0])
+target = Aircraft([0, 17000, 0], [300, 0, 0])
 
 # plot
 fig, axs = plt.subplots(4)
@@ -237,10 +271,11 @@ aoatrack = axs[1].plot(0, 0, label="Angle of attack")[0]
 
 def update(frame):
     # missile update function
-    # missile.update(frame, 0)
-    missile.update(frame, missile.purepursuit(frame, target))
+    missile.update(frame, missile.pronav(frame, target))
+    # missile.update(frame, 100)
+    # missile.update(frame, missile.purepursuit(frame, target))
     target.update(frame)
-    # missile.pronav(frame, target)
+    missile.pronav(frame, target)
 
     # missile position plot
     mtrack.set_xdata([x for x, y, z in missile.pos[:frame]])
